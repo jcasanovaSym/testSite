@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Staffing tool – hosting check</title>
+<style>
+  body { margin: 0; background: #f6f6f4; color: #1a1815; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 20px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 24px; color: #5b574f; }
+  .ver { display: inline-block; padding: 2px 8px; background: #1a1815; color: #fff; border-radius: 3px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #ddd9d0; }
+  td { padding: 10px 12px; border-top: 1px solid #ece8df; vertical-align: top; }
+  tr:first-child td { border-top: 0; }
+  td.s { width: 64px; font-weight: 600; }
+  .pass { color: #0f766e; } .fail { color: #b91c1c; } .wait { color: #8a857b; }
+  td.d { color: #5b574f; font-size: 13px; word-break: break-all; }
+  button { margin-top: 16px; padding: 8px 14px; font: inherit; border: 1px solid #1a1815; background: #fff; cursor: pointer; }
+  button:focus-visible { outline: 3px solid #c2410c; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Hosting check <span class="ver" id="ver">build 1</span></h1>
+  <p class="sub">Every row should read Pass. Reload the page and the visit counter should go up.</p>
+  <table><tbody id="rows"></tbody></table>
+  <button id="reset">Reset visit counter</button>
+</main>
+
+<!-- Same CDN stack and versions as staffing_projection_v13.html -->
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.0/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+
+<script>
+  var BUILD = "build 1";  // change this when testing an update
+  document.getElementById("ver").textContent = BUILD;
+  var rows = document.getElementById("rows");
+  function row(id, name) {
+    var tr = document.createElement("tr");
+    tr.innerHTML = '<td class="s wait" id="s-' + id + '">…</td><td><strong>' + name + '</strong><div class="d" id="d-' + id + '"></div></td>';
+    rows.appendChild(tr);
+  }
+  function set(id, ok, detail) {
+    var s = document.getElementById("s-" + id);
+    s.className = "s " + (ok ? "pass" : "fail");
+    s.textContent = ok ? "Pass" : "Fail";
+    document.getElementById("d-" + id).textContent = detail;
+  }
+  row("origin", "Page origin (localStorage is tied to this)");
+  row("storage", "localStorage survives reload");
+  row("react", "React 18 loaded from jsdelivr");
+  row("xlsx", "xlsx-js-style loaded from jsdelivr");
+  row("babel", "Babel compiles and runs JSX in the browser");
+  row("csp", "Response headers (Content-Security-Policy)");
+
+  set("origin", location.protocol === "https:", location.origin);
+
+  try {
+    var KEY = "hosting_check_visits";
+    var n = parseInt(localStorage.getItem(KEY) || "0", 10) + 1;
+    localStorage.setItem(KEY, String(n));
+    set("storage", true, "Visit " + n + " on this origin. Reload: this should be " + (n + 1) + ".");
+  } catch (e) { set("storage", false, "Blocked: " + e.message); }
+
+  document.getElementById("reset").onclick = function () {
+    try { localStorage.removeItem("hosting_check_visits"); location.reload(); } catch (e) {}
+  };
+
+  set("react", !!(window.React && window.ReactDOM), window.React ? "React " + React.version : "Did not load. Network or policy blocked jsdelivr.");
+  set("xlsx", !!window.XLSX, window.XLSX ? "Loaded" : "Did not load. Export would break.");
+
+  fetch(location.href, { cache: "no-store", credentials: "same-origin" })
+    .then(function (r) {
+      var csp = r.headers.get("content-security-policy");
+      set("csp", !csp || (csp.indexOf("unsafe-eval") > -1 || csp.indexOf("script-src") === -1),
+        csp ? csp : "No CSP header sent. Nothing restricts scripts.");
+    })
+    .catch(function (e) { set("csp", true, "Could not read headers (" + e.message + "). Rely on the Babel row."); });
+
+  // If Babel never runs, this timeout marks the row as failed.
+  setTimeout(function () {
+    if (!window.__babelRan) set("babel", false, "JSX never ran. Likely a CSP blocking eval or Babel failed to load.");
+  }, 4000);
+</script>
+
+<script type="text/babel">
+  function Probe() {
+    const [clicks, setClicks] = React.useState(0);
+    React.useEffect(() => { window.__babelRan = true; }, []);
+    return <span>{clicks}</span>;
+  }
+  const mount = document.createElement("div");
+  document.body.appendChild(mount);
+  ReactDOM.createRoot(mount).render(<Probe />);
+  setTimeout(() => set("babel", !!window.__babelRan, "JSX component mounted with hooks."), 300);
+</script>
+</body>
+</html>
